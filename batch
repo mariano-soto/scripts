@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+
+if (( $# > 1 )); then
+  printf 'Uso: %s [archivo|-]\n' "${0##*/}" >&2
+  exit 2
+fi
+
+if [[ $# -eq 1 && $1 != - ]]; then
+  exec 3< "$1" || exit 1
+else
+  exec 3<&0
+fi
+
+while IFS= read -r comando <&3 || [[ -n $comando ]]; do
+  printf '$ %s\n\n' "$comando"
+  bash -c "$comando" </dev/null 3<&- 2>&1
+  printf '\n\n'
+done

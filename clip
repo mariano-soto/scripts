@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+
+script_name=${0##*/}
+
+fail() {
+    local status=$1
+    shift
+    printf '%s: %s\n' "$script_name" "$*" >&2
+    exit "$status"
+}
+
+usage_error() {
+    fail 2 "Argumentos incorrectos. Consulta «$script_name --help»."
+}
+
+if [[ $# -eq 0 ]]; then
+    tmux load-buffer - 2> /dev/null || fail "$?" 'No se pudo cargar la entrada en tmux.'
+    exit 0
+fi
+
+action=clip
+case $1 in
+    -h|--help)
+        [[ $# -eq 1 ]] || usage_error
+        cat <<EOF
+Uso
+  $script_name                       Carga la entrada estándar en tmux.
+  $script_name <id>                  Guarda la entrada de una tubería o redirección.
+  $script_name <id>                  Muestra el clip con el teclado o /dev/null como entrada.
+  $script_name -l, --list            Muestra una lista numerada de los IDs guardados.
+  $script_name -d <id>, --delete <id> Borra el clip indicado.
+  $script_name -h, --help                Muestra esta ayuda.
+
+Ejemplos
+  printf '%s\n' 'Hola' | $script_name notas
+  $script_name notas </dev/null
+  $script_name --list
+  $script_name -d notas
+  printf '%s\n' 'Hola' | $script_name
+
+Usa «$script_name -- <id>» para guardar o leer un ID que coincida con una opción.
+EOF
+        exit 0
+        ;;
+    -l|--list)
+        [[ $# -eq 1 ]] || usage_error
+        action=list
+        ;;
+    -d|--delete)
+        [[ $# -eq 2 ]] || usage_error
+        action=delete
+        shift
+        ;;
+    --)
+        [[ $# -eq 2 ]] || usage_error
+        shift
+        ;;
+    *)
+        [[ $# -eq 1 ]] || usage_error
+        ;;
+esac
+
+[[ -n ${HOME:-} ]] || fail 1 'La variable HOME está vacía o sin definir.'
+clip_dir=$HOME/.clip
+
+if [[ $action == list ]]; then
+    [[ -e $clip_dir || -L $clip_dir ]] || exit 0
+    [[ -d $clip_dir && -r $clip_dir && -x $clip_dir ]] ||
+        fail 1 "No se pudo listar el directorio «$clip_dir»."
+
+    shopt -s dotglob nullglob
+    number=0
+    for clip_file in "$clip_dir"/?*.clip; do
+        [[ -f $clip_file ]] || continue
+        number=$((number + 1))
+        id=${clip_file##*/}
+        id=${id%.clip}
+        if [[ $id == *[[:cntrl:]]* ]]; then
+            printf '%d. %q\n' "$number" "$id"
+        else
+            printf '%d. %s\n' "$number" "$id"
+        fi
+    done
+    exit 0
+fi
+
+id=$1
+if [[ -z $id || $id == */* ]]; then
+    fail 2 'El ID no puede estar vacío ni contener «/».'
+fi
+
+clip_file=$clip_dir/$id.clip
+
+if [[ $action == delete ]]; then
+    rm -- "$clip_file" </dev/null 2> /dev/null || fail "$?" "No se pudo borrar el clip «$id»."
+    exit 0
+fi
+
+if [[ -t 0 || ! -e /dev/stdin || /dev/stdin -ef /dev/null ]]; then
+    cat -- "$clip_file" 2> /dev/null || fail "$?" "No se pudo leer el clip «$id»."
+    exit 0
+fi
+
+umask 077
+mkdir -p -- "$clip_dir" || fail 1 "No se pudo crear el directorio «$clip_dir»."
+temp_file=$(mktemp -- "$clip_dir/.clip.XXXXXXXX") ||
+    fail 1 "No se pudo crear un archivo temporal en «$clip_dir»."
+trap 'rm -f -- "$temp_file"' EXIT
+
+cat > "$temp_file" || fail 1 "No se pudo escribir la entrada para el clip «$id»."
+case $OSTYPE in
+    darwin*|freebsd*)
+        [[ ! -d $clip_file || -L $clip_file ]] ||
+            fail 1 "No se pudo guardar el clip «$id»."
+        /bin/mv -fh -- "$temp_file" "$clip_file" || fail "$?" "No se pudo guardar el clip «$id»."
+        ;;
+    *)
+        mv -fT -- "$temp_file" "$clip_file" || fail "$?" "No se pudo guardar el clip «$id»."
+        ;;
+esac
+trap - EXIT

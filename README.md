@@ -38,9 +38,16 @@ Cada línea se ejecuta en un proceso de Bash independiente. Un `cd` o una variab
 
 ```sh
 printf '%s\n' 'Hola' | clip notas  # Guardar el clip notas
-clip notas </dev/null             # Mostrar su contenido
-clip --list                       # Listar los clips guardados
-clip --delete notas               # Borrar el clip notas
+clip notas                       # Mostrar su contenido
+clip --list                      # Listar los clips guardados
+clip --delete notas              # Borrar el clip notas
+```
+
+También puedes usar un clip como entrada de otro comando. Este ejemplo guarda dos líneas de un registro y muestra solo la que empieza con `ERROR:`.
+
+```sh
+printf '%s\n' 'INFO: Conectando al servidor' 'ERROR: Se agotó el tiempo de espera' | clip error
+clip error | grep '^ERROR:'
 ```
 
 En una sesión de tmux, omite el nombre para cargar la entrada directamente en el búfer.
